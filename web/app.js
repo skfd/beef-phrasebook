@@ -9,6 +9,9 @@ import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
 // camera starts on and therefore the side the cutaway takes off.
 const BODY_CENTRE = new THREE.Vector3(0.49, 0.46, 0);
 const EXPLODE_REACH = 0.32;
+// How solid the butchery shell is when it is drawn around the anatomy: enough to
+// read the colour of a cut off the far wall, little enough to see the muscles.
+const SHELL_OPACITY = 0.34;
 
 const canvas = document.getElementById('view');
 const tooltip = document.getElementById('tooltip');
@@ -18,7 +21,9 @@ let cultures = [];
 let current = null;          // the culture spec on screen
 let cutsById = new Map();    // cut id -> spec, for the culture on screen
 const models = new Map();    // culture id -> THREE.Group, loaded once and kept
+const shells = new Map();    // culture id -> the same model as a ghost, for the anatomy view
 let meshes = [];             // the pickable cut meshes of the culture on screen
+let shellMeshes = [];        // the pickable shell meshes of the culture on screen
 let hovered = null;
 let selected = null;
 
@@ -140,8 +145,50 @@ function loadCulture(id) {
     });
     scene.add(group);
     models.set(id, group);
+    shells.set(id, buildShell(group));
     return group;
   });
+}
+
+// The same carved cuts a second time, as a ghost to stand around the anatomy. A
+// copy rather than the meshes themselves: the explode slider belongs to the cut
+// view and keeps its value across a mode switch, and an overlay that flew apart
+// with it would sit nowhere near the animal it is meant to be describing.
+function buildShell(group) {
+  const shell = group.clone(true);
+  shell.visible = false;
+  shell.traverse(o => {
+    if (!o.isMesh) return;
+    o.castShadow = false;
+    o.receiveShadow = false;
+    // Back faces only, for the reason the hide is drawn that way: a translucent
+    // skin over both sides of the animal hangs a veil in front of every muscle.
+    // The far wall alone gives the whole silhouette in the cut's own colour with
+    // nothing between the eye and the anatomy -- and it puts the butchery line
+    // behind the meat, which is where a butcher meets it.
+    //
+    // Unlit, because the far wall faces away from every lamp in the scene: shaded,
+    // the eleven colours all arrive as the same brown murk. Flat colour is also
+    // what a butcher's chart is, so the shell reads as the chart it came from
+    // rather than as a second animal standing inside the first.
+    o.material = new THREE.MeshBasicMaterial({
+      color: o.material.color.clone(),
+      transparent: true,
+      opacity: SHELL_OPACITY,
+      depthWrite: false,
+      side: THREE.BackSide,
+      clippingPlanes: [clipPlane],
+    });
+    o.renderOrder = -1;
+    o.userData = { shell: true, baseColour: o.material.color.clone() };
+  });
+  scene.add(shell);
+  return shell;
+}
+
+function shellsVisible() {
+  const shell = current && shells.get(current.id);
+  return !!(shell && shell.visible);
 }
 
 function loadAnatomy() {
@@ -260,7 +307,7 @@ function buildLegend() {
       (showEn ? romaji : '') + `</span>`;
     li.onmouseenter = () => setHover(cut.id);
     li.onmouseleave = () => setHover(null);
-    li.onclick = () => select(cut.id);
+    li.onclick = () => selectCut(cut.id);
     list.appendChild(li);
   }
 }
@@ -396,8 +443,8 @@ function renderDetail(cut) {
          It is carved the full width of the body, so treat the slab as
          "whereabouts", not as the shape of the cut.</p>` : '') +
     (madeOf ? `<p class="d-label">What it is made of <span class="d-hint">— how much of the cut each muscle fills</span></p>
-               <ul class="elsewhere muscles">${madeOf}</ul>
-               <button class="text-btn see-anatomy">Open it on the animal →</button>` : '') +
+               <ul class="elsewhere muscles">${madeOf}</ul>` +
+              (mode === 'anatomy' ? '' : `<button class="text-btn see-anatomy">Open it on the animal →</button>`) : '') +
     (elsewhere ? `<p class="d-label">The same place, elsewhere</p>
                   <ul class="elsewhere">${elsewhere}</ul>` : '');
 
@@ -469,6 +516,25 @@ function applyAppearance() {
   document.querySelectorAll('#cut-list li').forEach(li => {
     li.setAttribute('aria-selected', String(li.dataset.id === selected));
   });
+  applyShellAppearance();
+}
+
+// The shell over the anatomy: the cut in hand solid enough to read as a wall around
+// its own muscles, the rest of the carcass faded back out of the way of them.
+function applyShellAppearance() {
+  for (const m of shellMeshes) {
+    const isHover = hovered === m.name;
+    const isSelected = selected === m.name;
+    m.material.color.copy(m.userData.baseColour);
+    // Barely lightened: unlit colour at this opacity is already vivid, and lifting it
+    // any further washes the cut's own colour out towards white just as it becomes
+    // the one thing on screen you are meant to be able to name.
+    if (isHover || isSelected) m.material.color.offsetHSL(0, 0.05, 0.03);
+    m.material.opacity = isSelected ? 0.78
+                       : isHover ? 0.60
+                       : selected ? 0.10
+                       : SHELL_OPACITY;
+  }
 }
 
 // Which muscles are lit because a cut is selected, rather than because the part was
@@ -494,26 +560,36 @@ function applyAnatomyAppearance() {
   });
 }
 
-function setHover(id, fromPointer = false) {
-  if (hovered === id) return;
+// Whether each hover came from the 3D view or from running the cursor down a list.
+// Only the 3D view gets a tooltip -- over a list the name is already under the mouse.
+const fromPointer = { cut: false, part: false };
+
+function setHover(id, pointer = false) {
+  if (hovered === id && fromPointer.cut === pointer) return;
   hovered = id;
+  fromPointer.cut = pointer;
   applyAppearance();
-  const cut = fromPointer && id && cutsById.get(id);
-  if (!cut) { tooltip.hidden = true; return; }
-  tooltip.hidden = false;
-  tooltip.innerHTML = esc(cut.native) +
-    (cut.native !== cut.name ? `<span class="tt-en">${esc(cut.name)}</span>` : '');
+  updateTooltip();
 }
 
-function setHoverPart(id, fromPointer = false) {
-  if (hoveredPart === id) return;
+function setHoverPart(id, pointer = false) {
+  if (hoveredPart === id && fromPointer.part === pointer) return;
   hoveredPart = id;
+  fromPointer.part = pointer;
   if (anatomy) applyAnatomyAppearance();
-  const part = fromPointer && id && anatomy && anatomy.byId.get(id);
-  if (!part) { tooltip.hidden = true; return; }
+  updateTooltip();
+}
+
+// In the anatomy view a muscle and the cut it lies in can both be under the cursor,
+// so the two hovers share one tooltip and the finer of the two gets to name it.
+function updateTooltip() {
+  const part = fromPointer.part && hoveredPart && anatomy ? anatomy.byId.get(hoveredPart) : null;
+  const cut = fromPointer.cut && hovered ? cutsById.get(hovered) : null;
+  const name = part ? part.name : cut ? cut.native : null;
+  if (!name) { tooltip.hidden = true; return; }
+  const sub = part ? part.latin : (cut.native !== cut.name ? cut.name : '');
   tooltip.hidden = false;
-  tooltip.innerHTML = esc(part.name) +
-    (part.latin ? `<span class="tt-en">${esc(part.latin)}</span>` : '');
+  tooltip.innerHTML = esc(name) + (sub ? `<span class="tt-en">${esc(sub)}</span>` : '');
 }
 
 function select(id) {
@@ -523,6 +599,14 @@ function select(id) {
   renderDetail(cut);
   applyAppearance();
   if (anatomy) applyAnatomyAppearance();
+}
+
+// Picking a cut while the anatomy is on screen: the cut takes the panel, so a muscle
+// that had it steps aside. The muscles the cut contains stay lit, which is the whole
+// point of having both models in one frame.
+function selectCut(id) {
+  selectedPart = null;
+  select(id);
 }
 
 function selectPart(id) {
@@ -543,6 +627,9 @@ async function showCulture(id, focusCut = null) {
   cutsById = new Map(spec.cuts.map(c => [c.id, c]));
   meshes = [];
   group.traverse(o => { if (o.isMesh) meshes.push(o); });
+  shellMeshes = [];
+  shells.get(id).traverse(o => { if (o.isMesh) shellMeshes.push(o); });
+  applyLayers();
 
   document.querySelectorAll('#cultures button').forEach(b =>
     b.setAttribute('aria-current', String(b.dataset.id === id)));
@@ -552,6 +639,11 @@ async function showCulture(id, focusCut = null) {
   tooltip.hidden = true;
   applyExplode();
   select(focusCut && cutsById.has(focusCut) ? focusCut : null);
+  // A muscle in focus survives a change of tradition: the panel is still about it,
+  // it is only answering with a different set of names now.
+  if (mode === 'anatomy' && selectedPart && anatomy) {
+    renderPartDetail(anatomy.byId.get(selectedPart));
+  }
 }
 
 async function setMode(next, focusPart = null) {
@@ -573,13 +665,13 @@ async function setMode(next, focusPart = null) {
   }
   if (anatomy) anatomy.group.visible = (mode === 'anatomy');
   document.body.dataset.mode = mode;
+  applyLayers();
   document.querySelectorAll('#modes button').forEach(b =>
     b.setAttribute('aria-current', String(b.dataset.mode === mode)));
   tooltip.hidden = true;
   hovered = null;
   hoveredPart = null;
   if (mode === 'anatomy') {
-    applyLayers();
     if (focusPart) selectPart(focusPart);
     else if (selectedPart) renderPartDetail(anatomy.byId.get(selectedPart));
     else renderDetail(selected ? cutsById.get(selected) : null);
@@ -607,13 +699,21 @@ explodeInput.oninput = applyExplode;
 // ones. Forty-odd muscles drawn at once is a red blob; being able to take the outer
 // layer off is the difference between a picture and a dissection.
 function applyLayers() {
-  if (!anatomy) return;
   const show = {
     skin: document.getElementById('layer-skin').checked,
     muscle: document.getElementById('layer-muscle').checked,
     viscera: document.getElementById('layer-viscera').checked,
     skeleton: document.getElementById('layer-skeleton').checked,
   };
+  // The cuts are a layer of the anatomy view like any other, except that the thing
+  // it shows is a tradition rather than a tissue -- so it follows the culture tabs,
+  // which until now did nothing at all on this side of the page.
+  const cuts = document.getElementById('layer-cuts').checked;
+  for (const [id, g] of shells) {
+    g.visible = cuts && mode === 'anatomy' && current !== null && id === current.id;
+  }
+  document.body.toggleAttribute('data-cuts', cuts && mode === 'anatomy');
+  if (!anatomy) return;
   const peel = Number(document.getElementById('peel').value);
   if (anatomy.skin) anatomy.skin.visible = show.skin;
   for (const m of anatomyMeshes) {
@@ -633,6 +733,14 @@ function applyClip() {
 for (const id of ['layer-skin', 'layer-muscle', 'layer-viscera', 'layer-skeleton']) {
   document.getElementById(id).onchange = applyLayers;
 }
+document.getElementById('layer-cuts').onchange = e => {
+  // The shell and the hide are the same silhouette, so drawing both hangs two
+  // translucent walls in one place and neither reads. The two trade places: turning
+  // the shell on stands the hide down and turning it off hands the hide back, which
+  // is better than leaving a switch on screen that has stopped meaning anything.
+  document.getElementById('layer-skin').checked = !e.target.checked;
+  applyLayers();
+};
 document.getElementById('peel').oninput = applyLayers;
 document.getElementById('cutaway').oninput = applyClip;
 
@@ -662,17 +770,32 @@ canvas.addEventListener('pointerup', e => {
   downAt = null;
   if (moved > 5) return;               // a drag to orbit, not a click on a cut
   const hit = pick();
-  if (mode === 'anatomy') selectPart(hit ? hit.object.name : null);
-  else select(hit ? hit.object.name : null);
+  if (mode !== 'anatomy') { select(hit ? hit.id : null); return; }
+  if (!hit) { selectPart(null); select(null); }
+  else if (hit.kind === 'part') selectPart(hit.id);
+  else selectCut(hit.id);
 });
 
+// What is under the cursor, as { kind, id }: in the anatomy view a muscle and the
+// butchery shell around it are both pickable and they lead to different panels.
 function pick() {
   raycaster.setFromCamera(pointer, camera);
-  if (mode !== 'anatomy') return raycaster.intersectObjects(meshes, false)[0] || null;
-  // The raycaster knows nothing about clipping planes, so a part the cutaway has
-  // sliced away would still answer the cursor. Drop the hits it cannot see.
-  const hits = raycaster.intersectObjects(anatomyMeshes.filter(m => m.visible), false);
-  return hits.find(h => clipPlane.distanceToPoint(h.point) >= 0) || null;
+  if (mode !== 'anatomy') {
+    const hit = raycaster.intersectObjects(meshes, false)[0];
+    return hit ? { kind: 'cut', id: hit.object.name } : null;
+  }
+  // A mesh handed to the raycaster by name answers even when it is hidden, so the
+  // layer and peel switches have to be applied here as well as to what is drawn.
+  const targets = anatomyMeshes.filter(m => m.visible);
+  if (shellsVisible()) targets.push(...shellMeshes);
+  // The raycaster knows nothing about clipping planes either, so a part the cutaway
+  // has sliced away would still answer the cursor. Drop the hits it cannot see.
+  const hits = raycaster.intersectObjects(targets, false);
+  const hit = hits.find(h => clipPlane.distanceToPoint(h.point) >= 0);
+  if (!hit) return null;
+  // Because the shell is drawn back faces only, the ray reaches it on the far side
+  // of the body, behind everything: anything anatomical in front of it wins.
+  return { kind: hit.object.userData.shell ? 'cut' : 'part', id: hit.object.name };
 }
 
 document.getElementById('detail-close').onclick = () => {
@@ -711,10 +834,11 @@ function tick() {
   if (pointerOnCanvas) {
     if (mode === 'anatomy' && anatomyMeshes.length) {
       const hit = pick();
-      setHoverPart(hit ? hit.object.name : null, true);
+      setHoverPart(hit && hit.kind === 'part' ? hit.id : null, true);
+      setHover(hit && hit.kind === 'cut' ? hit.id : null, true);
     } else if (mode === 'cuts' && meshes.length) {
       const hit = pick();
-      setHover(hit ? hit.object.name : null, true);
+      setHover(hit ? hit.id : null, true);
     }
   }
   renderer.render(scene, camera);
@@ -737,7 +861,10 @@ function buildAbout() {
      lines and silent about what a block is made of. <strong>Anatomy</strong> is what
      those blocks are made of: bones, muscles and organs placed in the same frame, so
      selecting a cut lights up the muscles inside it, and picking a muscle says which
-     cut it lands in everywhere.</p>
+     cut it lands in everywhere. The <em>Cuts</em> switch under the anatomy puts the
+     first model back around the second as a coloured shell, so you can see the
+     butchery lines standing in the animal they are drawn on — pick a tradition from
+     the tabs and the shell changes with it.</p>
      <p>Two honest simplifications in the schematic model. Boundaries are axis-aligned
      blocks, while a real chart has some diagonal and seam-following lines. And a cut
      that is really a thin sheet of muscle — skirt, flank, hanger — is carved the full

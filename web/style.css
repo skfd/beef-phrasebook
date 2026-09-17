@@ -433,6 +433,17 @@ body[data-mode="anatomy"] #blurb,
 body[data-mode="anatomy"] #cut-list,
 body[data-mode="anatomy"] #c-explode { display: none; }
 
+/* ...unless the cut shell is drawn over the anatomy, in which case the cut list is
+   the key to what you are looking at and shares the panel with the parts. The parts
+   keep the room: there are a hundred and fifteen of them against eight or ten cuts. */
+body[data-mode="anatomy"][data-cuts] #legend-title { display: block; }
+body[data-mode="anatomy"][data-cuts] #cut-list {
+  display: block;
+  flex: 0 1 auto;
+  max-height: 34%;
+  margin-bottom: 12px;
+}
+
 #part-count {
   font-family: var(--serif);
   font-size: 15px;
@@ -492,6 +503,12 @@ body[data-mode="anatomy"] #c-explode { display: none; }
 #anat-controls .layers {
   display: flex;
   gap: 10px;
+}
+
+/* The cuts are not a tissue, so they stand apart from the three that are. */
+#anat-controls .cuts-layer {
+  border-left: 1px solid var(--panel-line);
+  padding-left: 10px;
 }
 
 #peel { width: 68px; }

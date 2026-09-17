@@ -121,6 +121,41 @@ const outDir = process.argv[3] || path.join(__dirname, '..', 'build', 'shots');
   if (partCount < 20) throw new Error(`only ${partCount} anatomy parts reached the page`);
   await shot('06-anatomy', 1500);
 
+  // The butchery shell over the anatomy. It has to follow the culture tabs, keep the
+  // cut list readable beside the part list, and hand the panel to the cut rather than
+  // to a muscle -- the cross-reference is the only reason both models are on screen.
+  if (!(await page.isChecked('#layer-cuts'))) {
+    throw new Error('the anatomy view did not open with the cut shell on');
+  }
+  const shellCuts = await page.$$eval('#cut-list li', els => els.length);
+  console.log(`cut list beside the anatomy: ${shellCuts} entries`);
+  if (!shellCuts) throw new Error('the cut list is not readable while the shell is up');
+  await page.click('#cultures button[data-id="fr"]');
+  await page.waitForTimeout(1200);
+  const frCuts = await page.$$eval('#cut-list li', els => els.length);
+  if (!frCuts || frCuts === shellCuts) {
+    console.log(`note: fr shows ${frCuts} cuts against us ${shellCuts}`);
+  }
+  await shot('06b-anatomy-cuts-fr', 600);
+
+  await page.click('#cultures button[data-id="us"]');
+  await page.waitForTimeout(1200);
+  await page.click('#cut-list li[data-id="short_loin"]');
+  await page.waitForSelector('#detail:not([hidden])', { timeout: 5000 });
+  const shellPanel = (await page.textContent('.d-native')).trim();
+  const litByShell = await page.$$eval('#part-list li.lit', els => els.length);
+  console.log(`"${shellPanel}" over the anatomy lights ${litByShell} muscles`);
+  if (!litByShell) throw new Error('selecting a cut over the anatomy lit no muscles');
+  if (await page.$('#detail .see-anatomy')) {
+    throw new Error('the "open it on the animal" button is still offered on the animal');
+  }
+  await shot('06c-anatomy-cut-selected', 700);
+  await page.click('#detail-close');
+
+  // and out of the way again: everything below is the anatomy on its own
+  await page.uncheck('#layer-cuts');
+  await page.waitForTimeout(500);
+
   // strip the hide and the superficial muscle: what is left has to be the deep
   // layer, the organs and the skeleton, and it has to be fewer meshes than before
   await page.uncheck('#layer-skin');
