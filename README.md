@@ -42,7 +42,7 @@ the muscles it is made of while the rest of the carcass fades back:
 ![The US short loin standing over the muscles it is made of](docs/atlas-anatomy-cuts.png)
 
 Peel the superficial muscle away a layer at a time, turn the hide, the organs or the
-skeleton off, or open the near side of the animal with the cutaway:
+skeleton on and off, or open the near side of the animal with the cutaway:
 
 ![The cutaway, with the near half of the animal sliced open](docs/atlas-cutaway.png)
 

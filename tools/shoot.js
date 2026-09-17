@@ -150,7 +150,16 @@ const outDir = process.argv[3] || path.join(__dirname, '..', 'build', 'shots');
     throw new Error('the "open it on the animal" button is still offered on the animal');
   }
   await shot('06c-anatomy-cut-selected', 700);
+
+  // Closing the panel has to put the animal back the way it was. A cut left selected
+  // behind a closed panel goes on dimming two thirds of the muscles for no stated
+  // reason, and every anatomy shot after this one would be quietly wrong.
   await page.click('#detail-close');
+  await page.waitForTimeout(300);
+  const stillLit = await page.$$eval('#part-list li.lit', els => els.length);
+  if (stillLit) {
+    throw new Error(`closing the panel left ${stillLit} muscles lit by a cut nobody can see`);
+  }
 
   // and out of the way again: everything below is the anatomy on its own
   await page.uncheck('#layer-cuts');

@@ -771,7 +771,7 @@ canvas.addEventListener('pointerup', e => {
   if (moved > 5) return;               // a drag to orbit, not a click on a cut
   const hit = pick();
   if (mode !== 'anatomy') { select(hit ? hit.id : null); return; }
-  if (!hit) { selectPart(null); select(null); }
+  if (!hit) { clearSelection(); }
   else if (hit.kind === 'part') selectPart(hit.id);
   else selectCut(hit.id);
 });
@@ -798,9 +798,15 @@ function pick() {
   return { kind: hit.object.userData.shell ? 'cut' : 'part', id: hit.object.name };
 }
 
-document.getElementById('detail-close').onclick = () => {
-  if (mode === 'anatomy') selectPart(null); else select(null);
-};
+// Closing the panel clears whatever the panel was about, which in the anatomy view
+// can be either a muscle or a cut. A cut left behind goes on dimming every muscle it
+// does not contain from behind a panel that is no longer on screen to explain why.
+function clearSelection() {
+  if (mode === 'anatomy' && selectedPart) selectPart(null);
+  else select(null);
+}
+
+document.getElementById('detail-close').onclick = clearSelection;
 document.getElementById('reset').onclick = () => {
   camera.position.set(1.9, 1.25, 2.15);
   controls.target.copy(BODY_CENTRE);
@@ -818,8 +824,7 @@ document.getElementById('legend-toggle').onclick = e => {
 };
 document.getElementById('about-btn').onclick = () => document.getElementById('about').showModal();
 addEventListener('keydown', e => {
-  if (e.key !== 'Escape') return;
-  if (mode === 'anatomy') selectPart(null); else select(null);
+  if (e.key === 'Escape') clearSelection();
 });
 document.querySelectorAll('#modes button').forEach(b => {
   b.onclick = () => setMode(b.dataset.mode);
