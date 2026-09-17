@@ -30,7 +30,16 @@ the longissimus says which cut it lands in everywhere. The schematic carcass is 
 click away under **Cuts** — it is the honest picture of a butchery line, and the
 anatomy is the honest picture of what the line goes through.
 
-![The anatomy view: 115 named parts under a translucent hide](docs/atlas-anatomy.png)
+![The anatomy view: 115 named parts inside the American chart](docs/atlas-anatomy.png)
+
+The chart does not have to stay on the other page either. The **Cuts** layer stands
+the tradition on screen around the anatomy as a coloured shell, drawn behind the meat
+so that it never veils it, and the culture tabs decide which tradition is standing
+there — France's 29 cuts lay a visibly finer lattice over the same animal than
+America's 11. Pick a cut, on the shell or in the list beside it, and it closes around
+the muscles it is made of while the rest of the carcass fades back:
+
+![The US short loin standing over the muscles it is made of](docs/atlas-anatomy-cuts.png)
 
 Peel the superficial muscle away a layer at a time, turn the hide, the organs or the
 skeleton off, or open the near side of the animal with the cutaway:
