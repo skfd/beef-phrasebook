@@ -564,18 +564,18 @@ function applyAnatomyAppearance() {
 // Only the 3D view gets a tooltip -- over a list the name is already under the mouse.
 const fromPointer = { cut: false, part: false };
 
-function setHover(id, pointer = false) {
-  if (hovered === id && fromPointer.cut === pointer) return;
+function setHover(id, viaPointer = false) {
+  if (hovered === id && fromPointer.cut === viaPointer) return;
   hovered = id;
-  fromPointer.cut = pointer;
+  fromPointer.cut = viaPointer;
   applyAppearance();
   updateTooltip();
 }
 
-function setHoverPart(id, pointer = false) {
-  if (hoveredPart === id && fromPointer.part === pointer) return;
+function setHoverPart(id, viaPointer = false) {
+  if (hoveredPart === id && fromPointer.part === viaPointer) return;
   hoveredPart = id;
-  fromPointer.part = pointer;
+  fromPointer.part = viaPointer;
   if (anatomy) applyAnatomyAppearance();
   updateTooltip();
 }
